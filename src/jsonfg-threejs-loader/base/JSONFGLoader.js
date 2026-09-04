@@ -36,6 +36,7 @@ export class JSONFGLoader {
 		proj4.defs(defs);
 		proj4.defs("EPSG:6661","+proj=utm +zone=18 +ellps=GRS80 +units=m +vunits=m +no_defs +type=crs");
 		proj4.defs("EPSG:7415","+proj=sterea +lat_0=52.15616055555555 +lon_0=5.38763888888889 +k=0.999908 +x_0=155000 +y_0=463000 +ellps=bessel +units=m +towgs84=565.2369,50.0087,465.658,-0.406857330322398,0.350732676542563,-1.8703473836068,4.0812 +no_defs +no_defs");
+		proj4.defs("EPSG:2056","+proj=somerc +lat_0=46.95240555555556 +lon_0=7.439583333333333 +k_0=1 +x_0=2600000 +y_0=1200000 +ellps=bessel +towgs84=674.374,15.056,405.346,0,0,0,0 +units=m +no_defs +type=crs");
 		proj4.defs("OGC:CRS84","+proj=longlat +datum=WGS84 +no_defs +type=crs");
 		this.targetCRS = "EPSG:4326";
 
@@ -92,17 +93,20 @@ export class JSONFGLoader {
 		} else return;
 		const coordRefSys = this.targetCRS;
 		console.log(proj4.defs)
-		if (proj4.defs(this.targetCRS).projName) {
-			if (proj4.defs(this.targetCRS).projName === "longlat") {
-				let longitude = null;
-				if (data.features[0].place)
-					longitude = data.features[0].place.coordinates.flat(5)[0]
-				else
-					longitude = data.features[0].geometry.coordinates.flat(5)[0]
-				const utmZone = utmzone_from_lon(longitude);
-				this.targetCRS = "AutoUTM Zone "+utmZone;
-				proj4.defs(this.targetCRS, proj4_setdef(longitude));
-			}
+		const targetDef = proj4.defs(this.targetCRS);
+		if (!targetDef || !targetDef.projName) {
+			console.error("Unknown/unsupported CRS: " + this.targetCRS + ", geometry not reprojected");
+			return;
+		}
+		if (targetDef.projName === "longlat") {
+			let longitude = null;
+			if (data.features[0].place)
+				longitude = data.features[0].place.coordinates.flat(5)[0]
+			else
+				longitude = data.features[0].geometry.coordinates.flat(5)[0]
+			const utmZone = utmzone_from_lon(longitude);
+			this.targetCRS = "AutoUTM Zone "+utmZone;
+			proj4.defs(this.targetCRS, proj4_setdef(longitude));
 		}
 
 		// let context = this;
@@ -158,8 +162,11 @@ export class JSONFGLoader {
 
 		const normGeom = new BufferGeometry();
 
-		//get the first vertex of the first face of the polyhedrons
-		// If you want to get the complete first face instead, use feature.place.coordinates[ 0 ][ 0 ].flat().flat()
+		// Sample the first ring/line of the first face of each feature (rather than
+		// its full geometry) to keep this cheap on large datasets. Sampling a whole
+		// ring instead of a single vertex avoids a degenerate zero-radius bounding
+		// sphere when there are few features (e.g. a single-feature file), which
+		// would otherwise skip all scaling/centering below.
 		const faces = [];
 		for ( const feature of features ) {
 
@@ -168,15 +175,15 @@ export class JSONFGLoader {
 				if ( feature.place !== null ) {
 
 					// TODO: GeometryCollection / CustomGeometry, MultiPrism
-					if ( feature.place.type == "MultiPolyhedron" ) faces.push( feature.place.coordinates[ 0 ][ 0 ][ 0 ][ 0 ][ 0 ] );
-					else if ( feature.place.type == "Polyhedron" ) faces.push( feature.place.coordinates[ 0 ][ 0 ][ 0 ][ 0 ] );
-					else if ( feature.place.type == "MultiPolygon" ) faces.push( feature.place.coordinates[ 0 ][ 0 ][ 0 ] );
-					else if ( feature.place.type == "Polygon" || feature.place.type == "MultiLineString" ) faces.push( feature.place.coordinates[ 0 ][ 0 ] );
-					else if ( feature.place.type == "LineString" || feature.place.type == "MultiPoint" ) faces.push( feature.place.coordinates[ 0 ] );
+					if ( feature.place.type == "MultiPolyhedron" ) faces.push( ...feature.place.coordinates[ 0 ][ 0 ][ 0 ][ 0 ] );
+					else if ( feature.place.type == "Polyhedron" ) faces.push( ...feature.place.coordinates[ 0 ][ 0 ][ 0 ] );
+					else if ( feature.place.type == "MultiPolygon" ) faces.push( ...feature.place.coordinates[ 0 ][ 0 ] );
+					else if ( feature.place.type == "Polygon" || feature.place.type == "MultiLineString" ) faces.push( ...feature.place.coordinates[ 0 ] );
+					else if ( feature.place.type == "LineString" || feature.place.type == "MultiPoint" ) faces.push( ...feature.place.coordinates );
 					else if ( feature.place.type == "Point" ) faces.push( feature.place.coordinates );
 					else if ( feature.place.type == "Prism" ) {
-						if ( feature.place.base.type == "Polygon" ) faces.push( feature.place.coordinates[ 0 ][ 0 ] );
-						else if ( feature.place.base.type == "LineString" ) faces.push( feature.place.coordinates[ 0 ] );
+						if ( feature.place.base.type == "Polygon" ) faces.push( ...feature.place.coordinates[ 0 ] );
+						else if ( feature.place.base.type == "LineString" ) faces.push( ...feature.place.coordinates );
 						else if ( feature.place.base.type == "Point" ) faces.push( feature.place.coordinates );
 					}
 				}
@@ -193,7 +200,6 @@ export class JSONFGLoader {
 		const centre = new Vector3();
 
 		normGeom.boundingBox.getCenter( centre );
-		centre.setZ( 0 );
 		normGeom.computeBoundingSphere();
 		const radius = normGeom.boundingSphere.radius;
 
