@@ -22,6 +22,16 @@ function proj4_setdef(lon_deg) {
 	return zdef;
 }
 
+/**
+ * Returns the coordinates of a JSON-FG geometry. A Prism has none of its own:
+ * its 2D position is the one of its base.
+ */
+function geometryCoordinates( geometry ) {
+
+	return geometry.base ? geometry.base.coordinates : geometry.coordinates;
+
+}
+
 export class JSONFGLoader {
 
 	constructor( parser ) {
@@ -101,30 +111,33 @@ export class JSONFGLoader {
 		if (targetDef.projName === "longlat") {
 			let longitude = null;
 			if (data.features[0].place)
-				longitude = data.features[0].place.coordinates.flat(5)[0]
+				longitude = geometryCoordinates(data.features[0].place).flat(5)[0]
 			else
-				longitude = data.features[0].geometry.coordinates.flat(5)[0]
+				longitude = geometryCoordinates(data.features[0].geometry).flat(5)[0]
 			const utmZone = utmzone_from_lon(longitude);
 			this.targetCRS = "AutoUTM Zone "+utmZone;
 			proj4.defs(this.targetCRS, proj4_setdef(longitude));
 		}
 
 		// let context = this;
-		const reprojectCoordinates = (fromCRS, coords) => coords.map(geom => {
-			if (typeof geom[0] === 'number') {
-				return proj4(fromCRS, this.targetCRS, geom);
-			} else
-				return reprojectCoordinates(fromCRS, geom);
-		});
+		// coords is a single position (Point), or nested lists of positions
+		const reprojectCoordinates = (fromCRS, coords) => {
+			if (typeof coords[0] === 'number') {
+				return proj4(fromCRS, this.targetCRS, coords);
+			}
+			return coords.map(geom => reprojectCoordinates(fromCRS, geom));
+		};
 
 		// reproject
 		for ( const featureID in data.features ) {
 			let feature = data.features[featureID];
 			if(feature.geometry) {
-				feature.geometry.coordinates = reprojectCoordinates("EPSG:4326",feature.geometry.coordinates);
+				const target = feature.geometry.base || feature.geometry;
+				target.coordinates = reprojectCoordinates("EPSG:4326",target.coordinates);
 			}
 			if(feature.place) {
-				feature.place.coordinates = reprojectCoordinates(coordRefSys, feature.place.coordinates);
+				const target = feature.place.base || feature.place;
+				target.coordinates = reprojectCoordinates(coordRefSys, target.coordinates);
 			}
 		}
 	}
@@ -170,23 +183,33 @@ export class JSONFGLoader {
 		const faces = [];
 		for ( const feature of features ) {
 
-			if ( feature.hasOwnProperty( 'place' ) ) {
+			// A feature without place is positioned by its geometry
+			const geometry = feature.place ? feature.place : feature.geometry;
 
-				if ( feature.place !== null ) {
+			if ( geometry ) {
 
-					// TODO: GeometryCollection / CustomGeometry, MultiPrism
-					if ( feature.place.type == "MultiPolyhedron" ) faces.push( ...feature.place.coordinates[ 0 ][ 0 ][ 0 ][ 0 ] );
-					else if ( feature.place.type == "Polyhedron" ) faces.push( ...feature.place.coordinates[ 0 ][ 0 ][ 0 ] );
-					else if ( feature.place.type == "MultiPolygon" ) faces.push( ...feature.place.coordinates[ 0 ][ 0 ] );
-					else if ( feature.place.type == "Polygon" || feature.place.type == "MultiLineString" ) faces.push( ...feature.place.coordinates[ 0 ] );
-					else if ( feature.place.type == "LineString" || feature.place.type == "MultiPoint" ) faces.push( ...feature.place.coordinates );
-					else if ( feature.place.type == "Point" ) faces.push( feature.place.coordinates );
-					else if ( feature.place.type == "Prism" ) {
-						if ( feature.place.base.type == "Polygon" ) faces.push( ...feature.place.coordinates[ 0 ] );
-						else if ( feature.place.base.type == "LineString" ) faces.push( ...feature.place.coordinates );
-						else if ( feature.place.base.type == "Point" ) faces.push( feature.place.coordinates );
-					}
+				// TODO: GeometryCollection / CustomGeometry, MultiPrism
+				let coordinates = geometryCoordinates( geometry );
+
+				if ( ! coordinates ) continue;
+
+				// Descend to the first ring/line/position list of the geometry
+				while ( Array.isArray( coordinates[ 0 ] ) && Array.isArray( coordinates[ 0 ][ 0 ] ) ) coordinates = coordinates[ 0 ];
+				if ( typeof coordinates[ 0 ] === 'number' ) coordinates = [ coordinates ];
+
+				// Positions may be 2D
+				const positions = coordinates.map( p => [ p[ 0 ], p[ 1 ], p.length > 2 ? p[ 2 ] : 0 ] );
+
+				if ( geometry.type == "Prism" ) {
+
+					// Extend the sample to the top of the prism
+					const lower = geometry.lower || 0;
+					positions.forEach( p => p[ 2 ] = lower );
+					positions.push( [ positions[ 0 ][ 0 ], positions[ 0 ][ 1 ], geometry.upper ] );
+
 				}
+
+				faces.push( ...positions );
 
 			}
 

@@ -163,7 +163,7 @@ export default {
 
 			this.scene.traverse( c => {
 
-				if ( c.material ) {
+				if ( c.material && c.material.uniforms ) {
 
 					c.material.uniforms.selectSurface.value = this.highlightSelectedSurface;
 
@@ -178,7 +178,7 @@ export default {
 
 			this.scene.traverse( c => {
 
-				if ( c.material ) {
+				if ( c.material && c.material.uniforms ) {
 
 					c.material.uniforms.showSemantics.value = value;
 
@@ -193,7 +193,12 @@ export default {
 
 			this.scene.traverse( c => {
 
-				if ( c.material ) {
+				// Lines and points are split by LoD at load time
+				if ( c.userData.lodIdx !== undefined ) {
+
+					c.visible = lodIdx < 0 || c.userData.lodIdx === lodIdx;
+
+				} else if ( c.material ) {
 
 					c.material.showLod = lodIdx;
 					// c.material.uniforms.showLod.value = lodIdx;
@@ -295,7 +300,7 @@ export default {
 			this.scene.traverse( c => {
 
 				// TODO: fix highlighting
-				if ( c.material ) {
+				if ( c.material && c.material.uniforms ) {
 					// c.material.uniforms.selectSurface.value = this.highlightSelectedSurface;
 					c.material.uniforms.highlightedObjId.value = this.selectedObjidx;
 					// c.material.uniforms.highlightedGeomId.value = this.selectedGeomIdx;
@@ -314,7 +319,7 @@ export default {
 
 			this.scene.traverse( mesh => {
 
-				if ( mesh.material ) {
+				if ( mesh.material && mesh.material.uniforms ) {
 
 					for ( const objtype in scope.objectColors ) {
 
@@ -369,9 +374,10 @@ export default {
 
 				for ( let i = 0; i < results.length; i ++ ) {
 
-					const { face, object } = results[ i ];
+					const { face, index, object } = results[ i ];
 
-					const lodIdx = object.geometry.getAttribute( "lodid" ).getX( face.a );
+					// Lines and points have no face, only the index of their vertex
+					const lodIdx = object.geometry.getAttribute( "lodid" ).getX( face ? face.a : index );
 
 					if ( lodIdx == this.activeLod ) {
 
@@ -406,16 +412,17 @@ export default {
 
 			}
 
-			const { face, object } = this.getActiveIntersection( intersects );
+			const { face, index, object } = this.getActiveIntersection( intersects );
+			const vertexIdx = face ? face.a : index;
 
 			const objIds = object.geometry.getAttribute( 'objectid' );
 
 			if ( objIds ) {
 
-				const idx = objIds.getX( face.a );
+				const idx = objIds.getX( vertexIdx );
 
 				// const geomId = object.geometry.getAttribute( 'geometryid' ).getX( face.a );
-				const boundId = object.geometry.getAttribute( 'boundaryid' ).getX( face.a );
+				const boundId = object.geometry.getAttribute( 'boundaryid' ).getX( vertexIdx );
 
 				// const objectId = Object.keys( this.featureCollection.features )[ idx ];
 				this.$emit( 'object_clicked', { feature_id: this.featureCollection.features[idx].id, feature_idx: idx, boundary_id: boundId } );
@@ -447,6 +454,9 @@ export default {
 
 			// add raycaster and mouse (for clickable objects)
 			this.raycaster = new THREE.Raycaster();
+			// The scene is scaled to a radius of about 0.25
+			this.raycaster.params.Line.threshold = 0.005;
+			this.raycaster.params.Points.threshold = 0.005;
 			this.mouse = new THREE.Vector2();
 
 			//add AmbientLight (light that is only there that there's a minimum of light and you can see color)

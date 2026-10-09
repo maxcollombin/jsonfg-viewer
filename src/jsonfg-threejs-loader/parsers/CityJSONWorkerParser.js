@@ -1,17 +1,53 @@
-import { Matrix4, ShaderLib } from 'three';
+import { LineBasicMaterial, Matrix4, PointsMaterial, ShaderLib } from 'three';
 import { defaultObjectColors, defaultSemanticsColors } from '../defaults/colors.js';
 import { POINTS, LINES, TRIANGLES } from './geometry/GeometryData';
 import 'three/examples/jsm/lines/LineMaterial';
 import { CityObjectsMaterial } from '../materials/CityObjectsMaterial.js';
 import { CityObjectsMesh } from '../objects/CityObjectsMesh.js';
-// import { CityObjectsLines } from '../objects/CityObjectsLines.js';
-// import { CityObjectsPoints } from '../objects/CityObjectsPoints.js';
+import { CityObjectsLines } from '../objects/CityObjectsLines.js';
+import { CityObjectsPoints } from '../objects/CityObjectsPoints.js';
 // import { CityObjectsLineMaterial } from '../materials/CityObjectsLineMaterial.js';
 // import { CityObjectsPointsMaterial } from '../materials/CityObjectsPointsMaterial.js';
 // import { TriangleParser } from './geometry/TriangleParser';
 // import { LineParser } from './geometry/LineParser';
 // import { PointParser } from './geometry/PointParser';
 // import { CityObjectsInstancedMesh } from '../objects/CityObjectsInstancedMesh.js';
+
+// Colour of the lines and points of an object type that has no colour of its own
+const DEFAULT_LINE_POINT_COLOR = 0xb71c1c;
+
+/**
+ * Splits the vertices of a lines/points chunk by LoD (geometry or place), so
+ * that each part can be shown or hidden as a whole. Both vertices of a line
+ * segment belong to the same LoD, so segments stay intact.
+ */
+function splitByLod( vertices, geometryData ) {
+
+	const parts = {};
+	const array = new Float32Array( vertices );
+
+	for ( let i = 0; i < geometryData.lodIds.length; i ++ ) {
+
+		const lod = geometryData.lodIds[ i ];
+
+		if ( ! ( lod in parts ) ) {
+
+			parts[ lod ] = { vertices: [], objectIds: [], objectType: [], boundaryIds: [], lodIds: [] };
+
+		}
+
+		const part = parts[ lod ];
+		part.vertices.push( array[ 3 * i ], array[ 3 * i + 1 ], array[ 3 * i + 2 ] );
+		part.objectIds.push( geometryData.objectIds[ i ] );
+		part.objectType.push( geometryData.objectType[ i ] );
+		part.boundaryIds.push( geometryData.boundaryIds[ i ] );
+		part.lodIds.push( lod );
+
+	}
+
+	return Object.entries( parts ).map( ( [ lod, part ] ) => ( { lod: Number( lod ), ...part } ) );
+
+}
 
 export class CityJSONWorkerParser {
 
@@ -40,22 +76,14 @@ export class CityJSONWorkerParser {
 			// surfaceColors: this.surfaceColors
 		} );
 
-		// this.lineMaterial = new CityObjectsLineMaterial( {
+		// WebGL draws lines one pixel wide whatever linewidth is set to
+		this.lineMaterial = new LineBasicMaterial( { vertexColors: true } );
 
-		// 	color: 0xffffff,
-		// 	linewidth: 0.001,
-		// 	vertexColors: false,
-		// 	dashed: false,
-		// 	objectColors: this.objectColors
-		// 	// surfaceColors: this.surfaceColors
-
-		// } );
-
-		// this.pointsMaterial = new CityObjectsPointsMaterial( {
-		// 	size: 10,
-		// 	objectColors: this.objectColors
-		// 	// surfaceColors: this.surfaceColors
-		// } );
+		this.pointsMaterial = new PointsMaterial( {
+			size: 8,
+			sizeAttenuation: false,
+			vertexColors: true
+		} );
 
 	}
 
@@ -106,20 +134,25 @@ export class CityJSONWorkerParser {
 
 				}
 
-				// if ( e.data.geometryData.geometryType == LINES ) {
+				if ( e.data.geometryData.geometryType == LINES || e.data.geometryData.geometryType == POINTS ) {
 
-				// 	const lines = new CityObjectsLines( citymodel, vertices, geometryData, m, context.lineMaterial );
-				// 	scene.add( lines );
+					const isLines = e.data.geometryData.geometryType == LINES;
+					// Types unknown to the defaults get a random colour, hard to read on a map
+					const typeColors = Object.entries( e.data.objectColors ).map( ( [ name, colour ] ) => name in defaultObjectColors ? colour : undefined );
 
-				// }
+					for ( const part of splitByLod( vertices, geometryData ) ) {
 
-				// if ( e.data.geometryData.geometryType == POINTS ) {
+						const object = isLines ?
+							new CityObjectsLines( citymodel, part.vertices, part, m, context.lineMaterial, typeColors, DEFAULT_LINE_POINT_COLOR ) :
+							new CityObjectsPoints( citymodel, part.vertices, part, m, context.pointsMaterial, typeColors, DEFAULT_LINE_POINT_COLOR );
 
+						// Used to switch between geometry and place
+						object.userData.lodIdx = part.lod;
+						scene.add( object );
 
-				// 	const points = new CityObjectsPoints( citymodel, vertices, geometryData, m, context.pointsMaterial );
-				// 	scene.add( points );
+					}
 
-				// }
+				}
 
 				if ( onChunkLoad ) {
 

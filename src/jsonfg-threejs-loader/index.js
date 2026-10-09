@@ -3,8 +3,8 @@ import { CityJSONWorkerParser } from './parsers/CityJSONWorkerParser.js';
 import { ChunkParser } from './parsers/helpers/ChunkParser.js';
 
 import { CityObjectsMesh } from './objects/CityObjectsMesh.js';
-// import { CityObjectsLines } from './objects/CityObjectsLines.js';
-// import { CityObjectsPoints } from './objects/CityObjectsPoints.js';
+import { CityObjectsLines } from './objects/CityObjectsLines.js';
+import { CityObjectsPoints } from './objects/CityObjectsPoints.js';
 
 import { CityObjectsMaterial } from './materials/CityObjectsMaterial.js';
 // import { CityObjectsLineMaterial } from './materials/CityObjectsLineMaterial.js';
@@ -19,8 +19,8 @@ export {
 	ChunkParser,
 
 	CityObjectsMesh,
-	// CityObjectsLines,
-	// CityObjectsPoints,
+	CityObjectsLines,
+	CityObjectsPoints,
 
 	CityObjectsMaterial,
 	// CityObjectsLineMaterial,

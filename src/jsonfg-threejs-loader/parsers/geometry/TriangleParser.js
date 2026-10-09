@@ -46,6 +46,8 @@ export class TriangleParser extends BaseParser {
 
 			newGeometry.coordinates = [geometry.coordinates];
 
+			return newGeometry;
+
 		} else if ( geometryType == "MultiPolygon" ) {
 
 			return geometry;
@@ -66,11 +68,63 @@ export class TriangleParser extends BaseParser {
 
 			return newGeometry;
 
+		} else if ( geometryType == "Prism" ) {
+
+			return this.flattenPrism( geometry );
+
+		} else if ( [ "LineString", "MultiLineString", "Point", "MultiPoint" ].includes( geometryType ) ) {
+
+			// Drawn by the line and point parsers
+			return;
+
 		} else {
 
 			console.error("Unsupport geometry type: %s", geometryType);
 
 		}
+
+	}
+
+	/**
+	 * Converts a Prism with a Polygon base to a MultiPolygon: a bottom face at
+	 * `lower` (default 0), a top face at `upper` and one quad per base edge.
+	 */
+	flattenPrism( geometry ) {
+
+		if ( ! geometry.base || geometry.base.type != "Polygon" ) {
+
+			console.error("Unsupport Prism base type: %s", geometry.base && geometry.base.type);
+			return;
+
+		}
+
+		const lower = geometry.lower || 0;
+		const upper = geometry.upper;
+		const at = ( p, z ) => [ p[ 0 ], p[ 1 ], z ];
+		const rings = geometry.base.coordinates;
+
+		const surfaces = [
+			rings.map( ring => ring.map( p => at( p, lower ) ).reverse() ),
+			rings.map( ring => ring.map( p => at( p, upper ) ) )
+		];
+
+		for ( const ring of rings ) {
+
+			for ( let i = 0; i < ring.length - 1; i ++ ) {
+
+				const a = ring[ i ];
+				const b = ring[ i + 1 ];
+				surfaces.push( [ [ at( a, lower ), at( b, lower ), at( b, upper ), at( a, upper ), at( a, lower ) ] ] );
+
+			}
+
+		}
+
+		const newGeometry = Object.assign( {}, geometry );
+
+		newGeometry.coordinates = surfaces;
+
+		return newGeometry;
 
 	}
 

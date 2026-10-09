@@ -17,6 +17,16 @@ export class BaseParser {
 
 	parseGeometry( geometry, objectId, geomIdx ) {}
 
+	/**
+	 * Pads a 2D position with a zero height, so that vertex buffers always have
+	 * three components per vertex.
+	 */
+	to3d( position ) {
+
+		return position.length >= 3 ? position : [ position[ 0 ], position[ 1 ], 0 ];
+
+	}
+
 	getObjectIdx( objectId ) {
 
 		return objectId;
